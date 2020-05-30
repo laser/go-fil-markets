@@ -93,6 +93,7 @@ func (p *provider) Stop() error {
 
 // Start begins listening for deals on the given host
 func (p *provider) Start() error {
+	p.restartDeals()
 	return p.network.SetDelegate(p)
 }
 
@@ -302,6 +303,19 @@ func (p *provider) GetPieceSize(c cid.Cid) (uint64, error) {
 		return 0, errors.New("Not enough piece info")
 	}
 	return pieceInfo.Deals[0].Length, nil
+}
+
+func (p *provider) restartDeals() error {
+	var deals []retrievalmarket.ProviderDealState
+	err := p.stateMachines.List(&deals)
+	if err != nil {
+		return err
+	}
+
+	for _, pds := range deals {
+		err = p.stateMachines.Send(pds.Identifier(), retrievalmarket.ProviderEventDealResume)
+	}
+	return nil
 }
 
 func getPieceInfoFromCid(pieceStore piecestore.PieceStore, payloadCID, pieceCID cid.Cid) (piecestore.PieceInfo, error) {
