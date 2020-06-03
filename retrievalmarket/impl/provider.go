@@ -88,12 +88,19 @@ func NewProvider(minerAddress address.Address, node retrievalmarket.RetrievalPro
 
 // Stop stops handling incoming requests
 func (p *provider) Stop() error {
+	p.closeDealStreams()
+	err := p.suspendDeals()
+	if err != nil {
+		return err
+	}
 	return p.network.StopHandlingRequests()
 }
 
 // Start begins listening for deals on the given host
 func (p *provider) Start() error {
-	p.restartDeals()
+	if err := p.restartDeals(); err != nil {
+		return err
+	}
 	return p.network.SetDelegate(p)
 }
 
@@ -305,15 +312,41 @@ func (p *provider) GetPieceSize(c cid.Cid) (uint64, error) {
 	return pieceInfo.Deals[0].Length, nil
 }
 
+func (p *provider) closeDealStreams() {
+	for _, ds := range p.dealStreams {
+		if err := ds.Close(); err != nil {
+			log.Error(err)
+		}
+	}
+}
+
+func (p *provider) suspendDeals() error {
+	return p.foreachDealState(
+		func(pds retrievalmarket.ProviderDealState) error {
+			if err := p.stateMachines.Send(pds.Identifier(), retrievalmarket.ProviderEventDealSuspended); err != nil {
+				return err
+			}
+			return p.stateMachines.Stop(context.Background())
+		})
+}
+
 func (p *provider) restartDeals() error {
+	return p.foreachDealState(
+		func(pds retrievalmarket.ProviderDealState) error {
+			return p.stateMachines.Send(pds.Identifier(), retrievalmarket.ProviderEventDealResumed)
+		})
+}
+
+func (p *provider) foreachDealState(do func(state retrievalmarket.ProviderDealState) error) error {
 	var deals []retrievalmarket.ProviderDealState
 	err := p.stateMachines.List(&deals)
 	if err != nil {
 		return err
 	}
-
 	for _, pds := range deals {
-		err = p.stateMachines.Send(pds.Identifier(), retrievalmarket.ProviderEventDealResume)
+		if err = do(pds); err != nil {
+			return err
+		}
 	}
 	return nil
 }
