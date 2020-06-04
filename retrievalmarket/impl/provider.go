@@ -93,10 +93,6 @@ func (p *provider) Stop() error {
 	if err != nil {
 		return err
 	}
-	err = p.stateMachines.Stop(context.Background())
-	if err != nil {
-		return err
-	}
 	return p.network.StopHandlingRequests()
 }
 
